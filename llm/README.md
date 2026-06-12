@@ -1,14 +1,38 @@
-# Tool-Calling LLM Endpoint — Mock
+# Smart-Home LLM Endpoint — Mock
 
 An OpenAI-compatible `POST /chat/completions` server (port 8001) that Agora cloud
-calls during a conversation. This mock demonstrates internal tool execution: it
-detects the user's intent and runs one of two tools inside the endpoint —
-`log_message` (persist a note to SQLite) or `list_messages` (read notes back) —
-then streams back only the spoken reply, all with **no LLM API key**. Notes
-persist across restarts in a SQLite file (`MESSAGE_DB_PATH`, default `messages.db`).
+calls during a conversation. This mock implements a smart-home assistant with
+**no LLM API key** required. It demonstrates three capabilities:
 
-It has no `agora-agents` dependency — it is a plain FastAPI app, which is exactly
-the boundary you replace with your own model and tool registry.
+- **Room modes (update_tools)** — switching rooms changes the active device set.
+  Mode is stored in SQLite; `set_device()` rejects commands for devices not in
+  the current room.
+- **Keyword scenes** — "movie night", "good night", and "i'm home" run preset
+  batches of device commands regardless of the current room.
+- **Mocked home API** — device and mode state are stored in a SQLite database
+  (`HOME_DB_PATH`, default `home.db`). `get_status()` recalls the current state
+  across reconnects.
+
+Only the spoken reply is streamed back; Agora cloud never sees a `tool_call`.
+
+It has no `agora-agents` dependency — it is a plain FastAPI app. Replace the
+mock routing in `run_agent_turn()` with calls to a real home automation system.
+
+## Rooms and devices
+
+| Room | Available devices |
+| --- | --- |
+| `living_room` | tv, lamp, ac |
+| `bedroom` | lamp, fan |
+| `kitchen` | light, kettle |
+
+## Scenes
+
+| Phrase | Actions |
+| --- | --- |
+| `movie night` | living_room tv on + living_room lamp dim |
+| `good night` | bedroom lamp off + living_room tv off |
+| `i'm home` | living_room lamp on + kitchen light on |
 
 ## The contract
 
@@ -30,6 +54,15 @@ pip install -r requirements.txt
 python src/custom_llm_server.py     # serves on CUSTOM_LLM_PORT (default 8001)
 ```
 
+## Tests
+
+```bash
+cd llm
+. venv/bin/activate
+pip install -r requirements-dev.txt
+pytest tests -v   # 5 tests, no external deps
+```
+
 ## Expose it publicly
 
 Agora cloud — not the browser — calls this server, so it must be reachable from
@@ -44,13 +77,11 @@ Then set `CUSTOM_LLM_URL=https://<tunnel>/chat/completions` in `server/.env.loca
 ## Auth
 
 This mock does **not** authenticate. A production endpoint should validate the
-`Authorization: Bearer <CUSTOM_LLM_API_KEY>` header that Agora cloud forwards
-(the key you set on the agent backend).
+`Authorization: Bearer <CUSTOM_LLM_API_KEY>` header that Agora cloud forwards.
 
 ## Replace the mock
 
-Edit `run_agent_turn()` / `log_message()` / `list_messages()` in
-`src/custom_llm_server.py`. Examples: call a local model (Ollama/vLLM), inject RAG
-context before generating, or route models by content. `run_agent_turn()` routes
-the turn to a tool (recall is checked before logging) and streams the reply; a
-real endpoint would run the OpenAI tool-call loop against your model.
+Edit `run_agent_turn()` and the home-API functions in `src/custom_llm_server.py`
+to call a real home automation system (e.g. Home Assistant REST API, Matter,
+or your own device registry). The endpoint must keep speaking the OpenAI
+streaming `/chat/completions` contract.

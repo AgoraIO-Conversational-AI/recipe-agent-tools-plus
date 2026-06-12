@@ -1,8 +1,8 @@
-# Architecture — Tool Calling Recipe
+# Architecture — Smart Home Tools-Plus Recipe
 
 Three processes. The browser talks only to Next.js `/api/*`, which rewrites to the
 agent backend. The agent backend owns Agora tokens and agent lifecycle. The
-tool-calling LLM endpoint is a separate service that **Agora cloud** calls directly.
+smart-home LLM endpoint is a separate service that **Agora cloud** calls directly.
 
 ## Request flow
 
@@ -20,8 +20,11 @@ Agora ConvoAI Cloud
   │  user speech → Deepgram STT (managed)
   │  POST <CUSTOM_LLM_URL>/chat/completions   (Authorization: Bearer <key>)
   ▼
-Tool-calling LLM endpoint (llm/, :8001, public via tunnel)
-  │  runs internal tool loop; returns OpenAI SSE (spoken text only)
+Smart-home LLM endpoint (llm/, :8001, public via tunnel)
+  │  room mode gates device tools (update_tools pattern)
+  │  keyword scenes run device batches
+  │  SQLite stores device + mode state
+  │  streams only spoken reply (OpenAI SSE)
   ▼
 Agora ConvoAI Cloud → MiniMax TTS (managed) → user hears speech
                      → RTM transcript / metrics → web UI
@@ -29,32 +32,57 @@ Agora ConvoAI Cloud → MiniMax TTS (managed) → user hears speech
 
 `POST /api/stopAgent { agentId }` ends the session.
 
-## Where the tool runs
+## Smart-home engine (llm/)
 
-In this recipe the tool calls are handled entirely inside the `llm/` endpoint,
-which owns a small SQLite message log. `run_agent_turn()` detects the user's
-intent and executes one of two tools internally — `log_message()` to persist a
-note, or `list_messages()` to read recent notes back (recall is checked before
-logging, so "what have I noted" reads back instead of saving). Only the final
-spoken reply is streamed; Agora cloud never sees a `tool_call` chunk. Because the
-notes live in SQLite, they survive an endpoint restart.
+The smart-home engine runs entirely inside the `llm/` endpoint. It owns a SQLite
+database with two tables: `devices` (room, device, state) and `settings` (the
+current room mode). Agora cloud never sees a `tool_call` chunk — only the final
+spoken reply is streamed.
 
-This is distinct from an MCP-orchestrated approach, where Agora cloud would invoke
-a separate MCP server to run tools. That pattern is a separate recipe
-(`recipe-agent-mcp`), not built here.
+### Room modes (update_tools pattern)
+
+The current mode is stored in SQLite. When the user switches rooms, `set_mode()`
+updates the mode and returns a confirmation listing the devices now available.
+`set_device()` reads the current mode on every call and rejects commands for
+devices not in the active room's tool set.
+
+Available rooms and their devices:
+
+| Room | Devices |
+| --- | --- |
+| `living_room` | tv, lamp, ac |
+| `bedroom` | lamp, fan |
+| `kitchen` | light, kettle |
+
+### Keyword scenes
+
+Saying a scene keyword triggers `activate_scene()`, which writes all the scene's
+device commands directly to SQLite regardless of the current room mode.
+
+| Scene | Actions |
+| --- | --- |
+| `movie night` | living_room tv → on; living_room lamp → dim |
+| `good night` | bedroom lamp → off; living_room tv → off |
+| `i'm home` | living_room lamp → on; kitchen light → on |
+
+### Status recall
+
+`get_status()` reads all device rows from SQLite and returns a summary. Keywords
+like "status", "what is on", "what's on", and "which devices" trigger it.
 
 ## Why two backends
 
 `server/` and `llm/` are split because of an **exposure asymmetry**:
 
 - `llm/` must be reachable by **Agora cloud over the public internet** (hence the
-  ngrok tunnel). It is the part you replace with your own model and tool registry,
-  and it has no Agora dependency.
+  ngrok tunnel). It is the part you replace with your own real home automation
+  integration, and it has no Agora dependency.
 - `server/` only needs to be reachable by your web tier. It holds the Agora App
   Certificate and all token logic.
 
-In production the two could be co-deployed, but they are kept separate here to
-make that boundary — and the public-exposure requirement — explicit.
+In production the two could be co-deployed, but keeping them separate makes the
+public-exposure requirement explicit and keeps the home engine independently
+testable.
 
 ## API (agent backend, port 8000)
 
@@ -71,5 +99,5 @@ The browser calls these as `/api/*`; Next rewrites them to `AGENT_BACKEND_URL`.
 - Browser → agent backend: none (local dev).
 - Agent backend → Agora cloud: Token007, generated from `AGORA_APP_ID` +
   `AGORA_APP_CERTIFICATE`.
-- Agora cloud → tool-calling LLM endpoint: `Authorization: Bearer <CUSTOM_LLM_API_KEY>`.
+- Agora cloud → smart-home LLM endpoint: `Authorization: Bearer <CUSTOM_LLM_API_KEY>`.
   The mock endpoint does not validate it; a production endpoint should.
