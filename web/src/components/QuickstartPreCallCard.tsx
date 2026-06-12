@@ -24,11 +24,10 @@ export function QuickstartPreCallCard({
 			}}
 		>
 			<h1 className="text-[28px] font-medium leading-[1.2] text-white">
-				Tool Calling Recipe
+				Smart Home
 			</h1>
 			<p className="mt-[14px] text-sm font-medium leading-6 text-muted-foreground">
-				A voice agent that calls a tool. The tool runs inside your own
-				OpenAI-compatible endpoint and the agent speaks the result.
+				Control devices by room, trigger scenes like &apos;movie night&apos;, and ask what&apos;s on.
 			</p>
 
 			<Button

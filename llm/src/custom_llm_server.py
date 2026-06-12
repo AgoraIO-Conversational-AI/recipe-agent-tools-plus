@@ -1,5 +1,5 @@
 """
-Tool-Calling LLM Server — Mock Implementation
+Smart Home Tools-Plus LLM Server — Mock Implementation
 
 This server demonstrates how to implement an OpenAI-compatible Chat Completions
 endpoint that works with Agora Conversational AI Engine.
@@ -10,14 +10,15 @@ Key points:
 - Must follow OpenAI Chat Completions response format
 - Agora cloud sends Authorization header with the api_key you configured
 
-This mock version returns pre-defined responses so you can test the full
-voice pipeline (STT → Custom LLM → TTS) without any external LLM dependency.
+This mock version powers a smart-home assistant with:
+- Room modes (living_room / bedroom / kitchen) that gate which device tools run
+  (update_tools pattern: switching rooms changes the active device set)
+- Keyword scenes ("movie night", "good night", "i'm home") that run batches of
+  device commands independent of the current room
+- A mocked home API backed by SQLite (devices + mode state, zero-key)
+- get_status recall so users can ask what devices are currently on
 
-Replace the mock logic with your own:
-- Call your own model (local or remote)
-- Add RAG context injection
-- Implement tool calling
-- Route to different models based on content
+Replace the mock logic with your own real home-assistant integration.
 """
 import asyncio
 import json
@@ -47,10 +48,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Tool-Calling LLM Server (Mock)",
+    title="Smart Home Tools-Plus",
     description=(
         "OpenAI-compatible Chat Completions endpoint for Agora Conversational AI Engine. "
-        "This mock implementation demonstrates tool calling via an internal log_message tool."
+        "This mock implementation powers a smart-home assistant with room modes, keyword "
+        "scenes, and SQLite-backed device state — no API key required."
     ),
     version="1.0.0",
 )
@@ -108,64 +110,103 @@ class ChatCompletionRequest(BaseModel):
 
 
 # =============================================================================
-# Tool logic (mock, zero-key) — internal orchestration over SQLite
+# Smart-home engine (mock, zero-key) — room modes + keyword scenes over SQLite
 # -----------------------------------------------------------------------------
-# Two tools execute HERE, inside the endpoint, which owns a SQLite message log:
-#   log_message(conn, text)  — persist a note
-#   list_messages(conn)      — read recent notes back
-# run_agent_turn() routes by keyword and streams only the final answer; Agora
-# cloud never sees a tool_call. A real endpoint would run the OpenAI tool-call
-# loop against your model instead of this heuristic.
+# Room mode gates which device tools are available (update_tools pattern).
+# Keyword scenes run batches of device commands regardless of current mode.
+# All state (mode + device states) is persisted to SQLite so get_status works
+# across connections.
+#
+# run_agent_turn() routes by keyword and returns only the spoken reply; Agora
+# cloud never sees a tool_call. A real endpoint would call a real home API.
 # =============================================================================
 
-DB_PATH = os.getenv("MESSAGE_DB_PATH") or os.path.join(_base_dir, "messages.db")
+DB_PATH = os.getenv("HOME_DB_PATH") or os.path.join(_base_dir, "home.db")
 
-_LOG_TRIGGERS = ("log", "print", "note", "record", "console")
-# Recall is checked BEFORE logging so "what have I noted" reads back instead of
-# logging a new note. Keep these phrases distinct from everyday note text; this
-# is a keyword mock, so an utterance that mixes both (e.g. logging the word
-# "list") may route to recall — a real model would decide.
-_RECALL_TRIGGERS = (
-    "list", "read back", "remind me", "what have i", "what i have",
-    "what did i", "show me my", "my notes",
-)
+ROOMS = ("living_room", "bedroom", "kitchen")
+TOOLS_BY_MODE = {
+    "living_room": ("tv", "lamp", "ac"),
+    "bedroom": ("lamp", "fan"),
+    "kitchen": ("light", "kettle"),
+}
+SCENES = {
+    "movie night": (("living_room", "tv", "on"), ("living_room", "lamp", "dim")),
+    "good night": (("bedroom", "lamp", "off"), ("living_room", "tv", "off")),
+    "i'm home": (("living_room", "lamp", "on"), ("kitchen", "light", "on")),
+}
+_RECALL_KW = ("status", "what is on", "what's on", "what did i", "which devices")
+_ON = ("on", "turn on", "switch on", "enable")
+_OFF = ("off", "turn off", "switch off", "disable")
 
 
-def get_db(path: str = DB_PATH) -> "sqlite3.Connection":
-    # check_same_thread=False: a fresh connection is created and used per request;
-    # this keeps it safe if the sync DB work is ever moved to a threadpool.
+def get_db(path: str = DB_PATH):
     conn = sqlite3.connect(path, check_same_thread=False)
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            text TEXT NOT NULL,
-            created_at REAL NOT NULL
-        )"""
-    )
+    conn.execute("""CREATE TABLE IF NOT EXISTS devices (
+        room TEXT NOT NULL, device TEXT NOT NULL, state TEXT NOT NULL,
+        PRIMARY KEY (room, device))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('mode','living_room')")
     conn.commit()
     return conn
 
 
-def log_message(conn: "sqlite3.Connection", text: str) -> str:
-    """Tool: persist a message and return a confirmation."""
-    conn.execute(
-        "INSERT INTO messages (text, created_at) VALUES (?, ?)", (text, time.time())
-    )
+def get_mode(conn) -> str:
+    return conn.execute("SELECT value FROM settings WHERE key='mode'").fetchone()[0]
+
+
+def set_mode(conn, room: str) -> str:
+    conn.execute("UPDATE settings SET value=? WHERE key='mode'", (room,))
     conn.commit()
-    logger.info("TOOL log_message recorded: %s", text)
-    return f'Logged your message: "{text}".'
+    devices = ", ".join(TOOLS_BY_MODE[room])
+    return f"You're now in the {room.replace('_',' ')}. I can control: {devices}."
 
 
-def list_messages(conn: "sqlite3.Connection") -> str:
-    """Tool: read back the most recent logged messages."""
-    rows = conn.execute(
-        "SELECT text FROM messages ORDER BY created_at DESC, id DESC LIMIT 10"
-    ).fetchall()
+def _set_device(conn, room, device, state) -> None:
+    conn.execute("INSERT OR REPLACE INTO devices (room, device, state) VALUES (?,?,?)",
+                 (room, device, state))
+    conn.commit()
+
+
+def set_device(conn, device: str, state: str) -> str:
+    mode = get_mode(conn)
+    if device not in TOOLS_BY_MODE[mode]:
+        avail = ", ".join(TOOLS_BY_MODE[mode])
+        return (f"The {device} isn't available in the {mode.replace('_',' ')}. "
+                f"Here you can control: {avail}.")
+    _set_device(conn, mode, device, state)
+    return f"Turned {state} the {device} in the {mode.replace('_',' ')}."
+
+
+def activate_scene(conn, name: str) -> str:
+    for room, device, state in SCENES[name]:
+        _set_device(conn, room, device, state)
+    return f"Activated '{name}'. Enjoy!"
+
+
+def get_status(conn) -> str:
+    rows = conn.execute("SELECT room, device, state FROM devices ORDER BY room, device").fetchall()
     if not rows:
-        return "You haven't logged any messages yet."
-    items = "; ".join(row[0] for row in rows)
-    plural = "s" if len(rows) != 1 else ""
-    return f"You have {len(rows)} logged message{plural}: {items}."
+        return "Nothing's been changed yet — all devices are at their defaults."
+    items = "; ".join(f"{r.replace('_',' ')} {d}: {st}" for r, d, st in rows)
+    return f"Current status — {items}."
+
+
+def _detect_room(text: str):
+    for r in ROOMS:
+        if r.replace("_", " ") in text or r in text:
+            return r
+    if "living room" in text:
+        return "living_room"
+    return None
+
+
+def _detect_device(text: str):
+    for devs in TOOLS_BY_MODE.values():
+        for d in devs:
+            if d in text:
+                return d
+    return None
 
 
 def _extract_last_user_text(messages: list) -> str:
@@ -184,27 +225,24 @@ def _extract_last_user_text(messages: list) -> str:
     return ""
 
 
-def _message_to_log(user_text: str) -> str:
-    if ":" in user_text:
-        tail = user_text.split(":", 1)[1].strip()
-        if tail:
-            return tail
-    return user_text.strip()
-
-
-def run_agent_turn(conn: "sqlite3.Connection", messages: list) -> str:
-    """Route the turn to a tool (recall or log) and return the final text."""
-    user_text = _extract_last_user_text(messages)
-    lowered = user_text.lower()
-    if any(trigger in lowered for trigger in _RECALL_TRIGGERS):
-        return list_messages(conn)
-    if any(trigger in lowered for trigger in _LOG_TRIGGERS):
-        confirmation = log_message(conn, _message_to_log(user_text))
-        return f"{confirmation} Anything else you'd like me to note?"
-    return (
-        "I'm a voice assistant that can log messages and read them back. Say "
-        "'log this: buy milk' to save one, or 'list my notes' to hear them."
-    )
+def run_agent_turn(conn, messages: list) -> str:
+    text = _extract_last_user_text(messages).lower()
+    if any(k in text for k in _RECALL_KW):
+        return get_status(conn)
+    for scene in SCENES:
+        if scene in text:
+            return activate_scene(conn, scene)
+    room = _detect_room(text)
+    if room and ("switch" in text or "go to" in text or "mode" in text or "i'm in" in text or "im in" in text):
+        return set_mode(conn, room)
+    device = _detect_device(text)
+    if device:
+        state = "on" if any(k in text for k in _ON) else ("off" if any(k in text for k in _OFF) else "on")
+        if "dim" in text:
+            state = "dim"
+        return set_device(conn, device, state)
+    return ("I'm your smart-home assistant. Try 'turn on the tv', 'switch to the "
+            "kitchen', 'movie night', or 'what's on'.")
 
 
 # =============================================================================
@@ -278,9 +316,8 @@ async def chat_completions(
             detail="Only streaming mode is supported. Set stream=true.",
         )
 
-    # Run the agent turn (internal tool loop). The tool's DB work fully
-    # materializes the reply string before we close the connection, so the
-    # streaming generator below never touches the DB.
+    # Run the smart-home agent turn. DB work fully materializes the reply string
+    # before the streaming generator runs, so the generator never touches the DB.
     conn = get_db()
     try:
         response_text = run_agent_turn(conn, request.messages)
@@ -311,12 +348,12 @@ async def chat_completions(
 @app.get("/health")
 async def health():
     """Health check."""
-    return {"status": "ok", "service": "custom-llm-mock"}
+    return {"status": "ok", "service": "smarthome-mock"}
 
 
 if __name__ == "__main__":
     port = int(os.getenv("CUSTOM_LLM_PORT", "8001"))
-    logger.info(f"Starting Tool-Calling LLM Server (Mock) on port {port}")
+    logger.info(f"Starting Smart Home Tools-Plus LLM Server (Mock) on port {port}")
     logger.info("This server returns mock responses — no LLM API key needed.")
     logger.info(f"Endpoint: http://0.0.0.0:{port}/chat/completions")
     uvicorn.run(app, host="0.0.0.0", port=port)

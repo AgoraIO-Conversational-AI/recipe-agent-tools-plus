@@ -1,11 +1,12 @@
 """
-Agent — Tool Calling Recipe
+Agent — Smart Home Tools-Plus Recipe
 
 High-level API for managing Agora Conversational AI Agents with a Custom LLM.
 
-Instead of using the built-in OpenAI vendor, this recipe configures the agent
-to use a custom LLM endpoint (your own proxy server) that is compatible with
-the OpenAI Chat Completions API format.
+This recipe configures the agent to use a smart-home LLM endpoint that is
+compatible with the OpenAI Chat Completions API format. The smart-home engine
+uses room modes to gate device tools (update_tools), keyword scenes to run
+batches, and SQLite to persist device and mode state.
 """
 import logging
 import os
@@ -18,24 +19,23 @@ from agora_agent.agentkit.vendors import CustomLLM, DeepgramSTT, MiniMaxTTS
 
 logger = logging.getLogger("uvicorn.error")
 
-CUSTOM_LLM_PROMPT = """You are a helpful voice assistant connected to Agora's \
-Conversational AI Engine. You can log short messages for the user and read them \
-back. When the user asks you to log, note, or record something, call the \
-log_message tool with the text; when they ask what they've noted or to list \
-their notes, call list_messages. Then confirm. Keep replies to one or two \
-sentences."""
+CUSTOM_LLM_PROMPT = """You are a smart-home voice assistant connected to Agora's \
+Conversational AI Engine. You control home devices by room. Say which room you're \
+in to switch modes and unlock the devices in that room. Try scenes like 'movie \
+night' or 'good night' to run preset batches. Ask 'what's on' anytime to get a \
+status report. Keep replies to one or two sentences."""
 
 
 class Agent:
     """
-    High-level wrapper for Agora Conversational AI Agent with Custom LLM.
+    High-level wrapper for Agora Conversational AI Agent with a smart-home LLM.
 
-    The key difference from the quickstart is that this uses the OpenAI vendor
-    with a custom `base_url` pointing to your own OpenAI-compatible endpoint
-    (the custom_llm_server.py proxy). The Agora cloud will call your proxy
-    for chat completions instead of calling OpenAI directly.
+    Uses the CustomLLM vendor to point the agent's LLM stage at the smart-home
+    endpoint (llm/ server). Agora cloud calls that endpoint for chat completions;
+    the endpoint runs the room-mode and scene logic internally and streams back
+    only the spoken reply.
 
-    IMPORTANT: The custom LLM URL must be publicly accessible for the Agora
+    IMPORTANT: The smart-home LLM URL must be publicly accessible for the Agora
     Conversational AI Engine (cloud) to reach it. For local development, use
     a tunnel (ngrok, Cloudflare Tunnel) or GitHub Codespaces with public ports.
     """
@@ -45,7 +45,7 @@ class Agent:
         self.app_certificate = os.getenv("AGORA_APP_CERTIFICATE")
         self.greeting = os.getenv(
             "AGENT_GREETING",
-            "Hi! I'm your voice assistant — I can log quick notes and read them back. What should I remember?",
+            "Hi! I'm your smart-home assistant. Try 'turn on the TV' or 'movie night'.",
         )
 
         # Custom LLM configuration.
@@ -56,7 +56,7 @@ class Agent:
         # agent "start" while its LLM calls silently fail cloud-side.
         self.custom_llm_url = os.getenv("CUSTOM_LLM_URL")
         self.custom_llm_api_key = os.getenv("CUSTOM_LLM_API_KEY", "any-key-here")
-        self.custom_llm_model = os.getenv("CUSTOM_LLM_MODEL", "tool-mock")
+        self.custom_llm_model = os.getenv("CUSTOM_LLM_MODEL", "smarthome-mock")
 
         if not self.app_id or not self.app_certificate:
             raise ValueError("AGORA_APP_ID and AGORA_APP_CERTIFICATE are required")
@@ -64,7 +64,7 @@ class Agent:
         if not self.custom_llm_url:
             raise ValueError(
                 "CUSTOM_LLM_URL is required (the public chat-completions URL of your "
-                "custom LLM endpoint, e.g. https://<tunnel>/chat/completions)"
+                "smart-home LLM endpoint, e.g. https://<tunnel>/chat/completions)"
             )
 
         if not self.custom_llm_api_key:
@@ -89,7 +89,7 @@ class Agent:
         user_uid: int,
         output_audio_codec: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Start agent with Custom LLM vendor chain."""
+        """Start agent with smart-home CustomLLM vendor chain."""
         if not channel_name or not str(channel_name).strip():
             raise ValueError("channel_name is required and cannot be empty")
         if agent_uid <= 0:
@@ -100,17 +100,16 @@ class Agent:
         name = f"agent_{channel_name}_{agent_uid}_{int(time.time())}"
 
         # ============================================================
-        # KEY DIFFERENCE: Use the SDK's CustomLLM vendor
+        # KEY PATTERN: Use the SDK's CustomLLM vendor
         # ============================================================
-        # The base quickstart uses a managed `OpenAI(model="gpt-4o-mini")`.
-        # This recipe instead points the LLM stage at our own OpenAI-compatible
-        # endpoint (the llm/ server) via the purpose-built `CustomLLM` vendor.
-        # CustomLLM stamps `vendor: "custom"` in the wire config and requires
-        # both base_url and api_key. Your endpoint can then:
-        # - Add custom preprocessing (RAG, context injection)
-        # - Route to different models dynamically
-        # - Add logging and analytics
-        # - Implement custom tool calling
+        # Points the LLM stage at the smart-home endpoint (llm/ server)
+        # via the purpose-built `CustomLLM` vendor. CustomLLM stamps
+        # `vendor: "custom"` in the wire config and requires both
+        # base_url and api_key. The smart-home endpoint:
+        # - Gates device commands by room mode (update_tools pattern)
+        # - Runs keyword scenes as device batches
+        # - Persists all state in SQLite
+        # - Returns only the spoken reply — Agora cloud never sees a tool_call
         # ============================================================
         llm = CustomLLM(
             base_url=self.custom_llm_url,
@@ -160,7 +159,7 @@ class Agent:
                     },
                 },
             },
-            advanced_features={"enable_rtm": True, "enable_tools": True},
+            advanced_features={"enable_rtm": True},
             parameters=parameters,
         )
 
@@ -182,7 +181,7 @@ class Agent:
         )
 
         logger.info(
-            "Starting Custom LLM agent channel=%s agent_uid=%s user_uid=%s llm_url=%s",
+            "Starting smart-home agent channel=%s agent_uid=%s user_uid=%s llm_url=%s",
             channel_name,
             agent_uid,
             user_uid,
@@ -193,7 +192,7 @@ class Agent:
             agent_id = await session.start()
         except Exception:
             logger.exception(
-                "Failed to start Custom LLM agent channel=%s agent_uid=%s user_uid=%s",
+                "Failed to start smart-home agent channel=%s agent_uid=%s user_uid=%s",
                 channel_name,
                 agent_uid,
                 user_uid,
@@ -204,7 +203,7 @@ class Agent:
         self._sessions[agent_id] = session
 
         logger.info(
-            "Started Custom LLM agent agent_id=%s channel=%s",
+            "Started smart-home agent agent_id=%s channel=%s",
             agent_id,
             channel_name,
         )

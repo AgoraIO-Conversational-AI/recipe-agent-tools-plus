@@ -1,5 +1,5 @@
 {
-  "name": "recipe-agent-tool-calling",
+  "name": "recipe-agent-tools-plus",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
@@ -20,7 +20,7 @@
     "setup:server": "cd server && rm -rf venv && python3 -m venv venv && source venv/bin/activate && python -m pip install --upgrade pip && PIP_INDEX_URL=https://pypi.org/simple python -m pip install -r requirements.txt",
     "setup:llm": "cd llm && rm -rf venv && python3 -m venv venv && source venv/bin/activate && python -m pip install --upgrade pip && PIP_INDEX_URL=https://pypi.org/simple python -m pip install -r requirements.txt",
     "setup:web": "bun install",
-    "setup:done": "printf '\\n✅ Setup complete! Next steps:\\n   1. agora project env write server/.env.local   (or fill it in manually)\\n   2. ngrok http 8001                            (expose the tool-calling LLM endpoint)\\n   3. Add CUSTOM_LLM_URL=<tunnel-url>/chat/completions to server/.env.local\\n   4. bun run dev\\n\\n'",
+    "setup:done": "printf '\\n✅ Setup complete! Next steps:\\n   1. agora project env write server/.env.local   (or fill it in manually)\\n   2. ngrok http 8001                            (expose the smart-home LLM endpoint)\\n   3. Add CUSTOM_LLM_URL=<tunnel-url>/chat/completions to server/.env.local\\n   4. bun run dev\\n\\n'",
     "doctor": "bash -c 'set -e; echo \"Checking shared repo prerequisites...\"; command -v bun >/dev/null && echo \"- bun available\" || { echo \"- bun not found\"; exit 1; }; test -d node_modules && echo \"- workspace dependencies installed\" || { echo \"- root node_modules missing; run bun install\"; exit 1; }'",
     "doctor:local": "bash -c 'set -e; bun run doctor; command -v python3 >/dev/null && echo \"- python3 available\" || { echo \"- python3 not found\"; exit 1; }; test -f server/.env.local && echo \"- server/.env.local present\" || { echo \"- missing server/.env.local\"; exit 1; }; test -f llm/.env.local && echo \"- llm/.env.local present\" || { echo \"- missing llm/.env.local\"; exit 1; }; grep -Eq \"^AGORA_APP_ID=.+$\" server/.env.local && echo \"- AGORA_APP_ID configured\" || { echo \"- AGORA_APP_ID missing in server/.env.local\"; exit 1; }; grep -Eq \"^AGORA_APP_CERTIFICATE=.+$\" server/.env.local && echo \"- AGORA_APP_CERTIFICATE configured\" || { echo \"- AGORA_APP_CERTIFICATE missing in server/.env.local\"; exit 1; }; grep -Eq \"^CUSTOM_LLM_URL=.+$\" server/.env.local && echo \"- CUSTOM_LLM_URL configured\" || { echo \"- CUSTOM_LLM_URL missing in server/.env.local\"; exit 1; }; if grep -Eq \"^CUSTOM_LLM_URL=.*(localhost|127[.]0[.]0[.]1)\" server/.env.local; then echo \"- WARNING: CUSTOM_LLM_URL points at localhost; Agora cloud cannot reach a local address. Use a public tunnel URL.\"; fi'",
     "build": "cd web && bun run build",
