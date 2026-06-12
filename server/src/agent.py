@@ -51,7 +51,8 @@ class Agent:
         # Custom LLM configuration.
         # CUSTOM_LLM_URL is the FULL OpenAI-compatible chat-completions URL and must be
         # PUBLICLY reachable: Agora cloud (not this backend) calls it. For local dev,
-        # expose the llm/ server on port 8001 via ngrok and paste that URL here.
+        # expose the backend on port 8000 via ngrok and set CUSTOM_LLM_URL to
+        # <tunnel>/llm/chat/completions.
         # There is intentionally no localhost default: a localhost URL would let the
         # agent "start" while its LLM calls silently fail cloud-side.
         self.custom_llm_url = os.getenv("CUSTOM_LLM_URL")
@@ -63,8 +64,8 @@ class Agent:
 
         if not self.custom_llm_url:
             raise ValueError(
-                "CUSTOM_LLM_URL is required (the public chat-completions URL of your "
-                "smart-home LLM endpoint, e.g. https://<tunnel>/chat/completions)"
+                "CUSTOM_LLM_URL is required (the public chat-completions URL of the "
+                "/llm sub-app, e.g. https://<tunnel>/llm/chat/completions)"
             )
 
         if not self.custom_llm_api_key:
