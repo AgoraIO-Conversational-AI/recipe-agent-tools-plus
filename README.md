@@ -1,4 +1,4 @@
-# Agora Conversational AI — Smart Home Tools-Plus Recipe (Python)
+# Agora Conversational AI — Tools Plus Recipe (Python)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](https://www.python.org/)
@@ -66,6 +66,7 @@ Services:
 
 - Frontend — http://localhost:3000
 - Backend — http://localhost:8000
+- Smart-home mock — http://localhost:8001
 - API docs — http://localhost:8000/docs
 
 ## Deploy
@@ -73,6 +74,14 @@ Services:
 Deploy `web` (Next.js), `server` (a reachable FastAPI backend), and `llm` (a
 publicly reachable FastAPI endpoint). Set `AGENT_BACKEND_URL` in the web
 deployment so the Next rewrites reach the backend.
+
+**Docker image** — `ghcr.io/AgoraIO-Conversational-AI/recipe-agent-tools-plus`
+is published on `v*` tags. The image runs two processes: the agent backend on
+:8000 and the smart-home mock on :8001, supervised by `docker-entrypoint.sh`.
+Expose :8001 publicly and point `CUSTOM_LLM_URL` at it. Local `docker run`
+needs a tunnel (e.g. ngrok) so Agora cloud can reach :8001. The mock is a
+dev stand-in — replace `llm/src/custom_llm_server.py` with a real home
+integration for production.
 
 ## Environment variables
 
