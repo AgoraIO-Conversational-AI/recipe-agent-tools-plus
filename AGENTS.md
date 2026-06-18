@@ -8,7 +8,7 @@ recipes family, derived from the base `recipe-agent-tool-calling` template.
 
 - **`server/`** — Python FastAPI agent backend (:8000). Owns Agora token
   generation, agent session lifecycle, and the `/llm` sub-app. SDK:
-  `agora-agents>=2.0.0` (`import agora_agent`).
+  `agora-agents>=2.3.0` (`import agora_agent`).
 - **`server/src/llm.py`** — provider-agnostic FastAPI smart-home LLM endpoint,
   mounted into the API server at `/llm` (so Agora cloud calls
   `<public>/llm/chat/completions`). OpenAI-compatible `POST /chat/completions`

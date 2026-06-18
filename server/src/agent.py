@@ -10,7 +10,6 @@ batches, and SQLite to persist device and mode state.
 """
 import logging
 import os
-import time
 from typing import Any, Dict, Optional
 
 from agora_agent import Area, AsyncAgora
@@ -98,8 +97,6 @@ class Agent:
         if user_uid <= 0:
             raise ValueError("user_uid is required and cannot be empty")
 
-        name = f"agent_{channel_name}_{agent_uid}_{int(time.time())}"
-
         # ============================================================
         # KEY PATTERN: Use the SDK's CustomLLM vendor
         # ============================================================
@@ -138,7 +135,7 @@ class Agent:
             parameters["output_audio_codec"] = output_audio_codec.strip()
 
         agora_agent = AgoraAgent(
-            name=name,
+            client=self.client,
             instructions=CUSTOM_LLM_PROMPT,
             greeting=self.greeting,
             failure_message="Please wait a moment.",
@@ -173,7 +170,6 @@ class Agent:
         )
 
         session = agora_agent.create_async_session(
-            client=self.client,
             channel=channel_name,
             agent_uid=str(agent_uid),
             remote_uids=[str(user_uid)],
