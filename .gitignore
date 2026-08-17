@@ -20,6 +20,9 @@ web/dist/
 # Agora CLI local project binding
 .agora/
 
+# Local smart-home state
+server/home.db
+
 # IDE
 .vscode
 .idea
