@@ -29,6 +29,10 @@ spoken reply. STT (Deepgram nova-3) and TTS (MiniMax) stay Agora-managed.
 - [Agora CLI](https://github.com/AgoraIO/cli) — makes generating an App ID + App Certificate easy
 - [ngrok](https://ngrok.com/) — the backend must be publicly reachable so Agora cloud can call `/llm`
 
+The same commands work on macOS, Linux, and Windows. On macOS/Linux, setup uses
+`python3`; on Windows, it uses the Python launcher (`py`) or `python`. WSL and
+virtualenv activation are not required.
+
 ## Run It
 
 ```bash
@@ -96,7 +100,7 @@ Backend env file: [`server/.env.example`](server/.env.example).
 | `CUSTOM_LLM_API_KEY` | ✅ | `any-key-here` | Forwarded by Agora cloud as `Authorization: Bearer`. Required by the `CustomLLM` vendor. |
 | `CUSTOM_LLM_MODEL` |  | `smarthome-mock` | Model name passed to the endpoint |
 | `AGENT_GREETING` |  | built-in | Optional opening line override |
-| `HOME_DB_PATH` |  | `/tmp/home.db` | SQLite file for device and mode state |
+| `HOME_DB_PATH` |  | `home.db` | SQLite file for device and mode state. Relative paths resolve from `server/`; Docker uses `/tmp/home.db`. |
 | `PORT` |  | `8000` | Backend port |
 | `AGENT_BACKEND_URL` (web deploy) | ✅ | — | Required in a deployed `web` app when proxying to the backend |
 

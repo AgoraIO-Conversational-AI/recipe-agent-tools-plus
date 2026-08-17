@@ -18,11 +18,12 @@ keyword scenes, and device state internally.
 Use the repo-root `README.md` for the full local flow (`bun run dev`). To work on
 this module directly:
 
-```bash
-cd server
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python src/server.py
+The root commands below select the correct virtualenv interpreter on macOS,
+Linux, and Windows, so activation is not required:
+
+```shell
+bun run setup:server
+bun run backend
 ```
 
 ## Environment
@@ -37,7 +38,8 @@ python src/server.py
   Required by the `CustomLLM` vendor.
 
 Optional: `CUSTOM_LLM_MODEL` (default `smarthome-mock`), `AGENT_GREETING`,
-`HOME_DB_PATH` (default `/tmp/home.db`), `PORT` (default `8000`).
+`HOME_DB_PATH` (default `home.db` in the server root; `/tmp/home.db` in Docker),
+`PORT` (default `8000`).
 
 ## API
 

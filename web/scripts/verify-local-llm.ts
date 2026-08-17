@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 type BunRuntime = typeof globalThis & {
@@ -59,35 +61,37 @@ async function waitForHealthy(baseUrl: string, timeoutMs: number) {
 
 async function main() {
   const projectRoot = process.cwd() // web/
-  const llmRoot = path.resolve(projectRoot, '..', 'llm')
-  const venvPython = path.join(llmRoot, 'venv', 'bin', 'python')
+  const serverRoot = path.resolve(projectRoot, '..', 'server')
+  const venvPython = path.join(serverRoot, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
 
   if (!existsSync(venvPython)) {
-    throw new Error('Missing llm/venv/bin/python. Run bun run setup:llm before verify:local:llm.')
+    throw new Error('Missing server virtualenv. Run bun run setup:server before verify:local:llm.')
   }
 
   const dependencyCheck = bunRuntime.Bun.spawnSync({
     cmd: [venvPython, '-c', 'import dotenv, fastapi, uvicorn'],
-    cwd: llmRoot,
+    cwd: serverRoot,
     stderr: 'pipe',
     stdout: 'ignore',
   })
   if (dependencyCheck.exitCode !== 0) {
     const stderr = dependencyCheck.stderr.toString().trim()
     throw new Error(
-      `The llm virtualenv is missing required packages. Run bun run setup:llm before verify:local:llm.${stderr ? ` Python said: ${stderr}` : ''}`,
+      `The server virtualenv is missing required packages. Run bun run setup:server before verify:local:llm.${stderr ? ` Python said: ${stderr}` : ''}`,
     )
   }
 
   const port = 43160 + Math.floor(Math.random() * 20)
   const baseUrl = `http://127.0.0.1:${port}`
+  const databasePath = path.join(tmpdir(), `recipe-agent-tools-plus-${process.pid}-${port}.db`)
 
   const llmProcess = bunRuntime.Bun.spawn({
-    cmd: [venvPython, 'src/custom_llm_server.py'],
-    cwd: llmRoot,
+    cmd: [venvPython, 'src/llm.py'],
+    cwd: serverRoot,
     env: {
       ...process.env,
       CUSTOM_LLM_PORT: String(port),
+      HOME_DB_PATH: databasePath,
     },
     stdout: 'ignore',
     stderr: 'pipe',
@@ -151,6 +155,7 @@ async function main() {
         console.error(stderr.trim())
       }
     }
+    await rm(databasePath, { force: true })
   }
 }
 

@@ -29,7 +29,8 @@ recipes family, derived from the base `recipe-agent-tool-calling` template.
   agent backend; do not add `web/app/api/**/route.ts` for agent/token logic.
 - Token generation and agent lifecycle live in `server/src/`.
 - The OpenAI `/chat/completions` contract and home engine live in `server/src/llm.py`.
-- Device and mode state live in SQLite (`HOME_DB_PATH`, default `/tmp/home.db`).
+- Device and mode state live in SQLite (`HOME_DB_PATH`, default `home.db` in the
+  server root; `/tmp/home.db` in Docker).
 
 ## Smart-home engine
 
