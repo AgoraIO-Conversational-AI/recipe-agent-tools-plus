@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 type BunRuntime = typeof globalThis & {
@@ -81,6 +83,7 @@ async function main() {
 
   const port = 43160 + Math.floor(Math.random() * 20)
   const baseUrl = `http://127.0.0.1:${port}`
+  const databasePath = path.join(tmpdir(), `recipe-agent-tools-plus-${process.pid}-${port}.db`)
 
   const llmProcess = bunRuntime.Bun.spawn({
     cmd: [venvPython, 'src/llm.py'],
@@ -88,7 +91,7 @@ async function main() {
     env: {
       ...process.env,
       CUSTOM_LLM_PORT: String(port),
-      HOME_DB_PATH: ':memory:',
+      HOME_DB_PATH: databasePath,
     },
     stdout: 'ignore',
     stderr: 'pipe',
@@ -152,6 +155,7 @@ async function main() {
         console.error(stderr.trim())
       }
     }
+    await rm(databasePath, { force: true })
   }
 }
 

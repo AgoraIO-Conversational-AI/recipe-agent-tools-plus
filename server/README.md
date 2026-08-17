@@ -38,7 +38,8 @@ bun run backend
   Required by the `CustomLLM` vendor.
 
 Optional: `CUSTOM_LLM_MODEL` (default `smarthome-mock`), `AGENT_GREETING`,
-`HOME_DB_PATH` (default `/tmp/home.db`), `PORT` (default `8000`).
+`HOME_DB_PATH` (default `home.db` in the server root; `/tmp/home.db` in Docker),
+`PORT` (default `8000`).
 
 ## API
 
