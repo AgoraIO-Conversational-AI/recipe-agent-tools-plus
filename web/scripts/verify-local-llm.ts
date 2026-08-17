@@ -88,6 +88,7 @@ async function main() {
     env: {
       ...process.env,
       CUSTOM_LLM_PORT: String(port),
+      HOME_DB_PATH: ':memory:',
     },
     stdout: 'ignore',
     stderr: 'pipe',
